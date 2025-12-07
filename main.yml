@@ -1,0 +1,135 @@
+name: "🎣 HappyMancing — GCRD Automation"
+
+on:
+  workflow_dispatch:
+    inputs:
+      CODE:
+        description: "Full headless command or just the 4/... token from https://remotedesktop.google.com/headless (Windows)."
+        required: true
+      PIN:
+        description: "CRD PIN (6+ digits). Default 123456"
+        required: false
+        default: "123456"
+      RETRIES:
+        description: "Retries for start-host (default 3)"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crd-register-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  crd-register:
+    name: "🎣 HappyMancing Windows 10"
+    runs-on: windows-2022
+
+    env:
+      RAW_CODE:      ${{ github.event.inputs.CODE }}
+      PIN_INPUT:     ${{ github.event.inputs.PIN }}
+      RETRIES_INPUT: ${{ github.event.inputs.RETRIES }}
+      BRANCH:        ${{ github.ref_name }}
+      RUNNER_ENV:    "hosted"
+      HappyMancing_Access_Token: ${{ secrets.HappyMancing_Access_Token }}
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: "🔧 Environment Summary"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          Write-Host "==============================================="
+          Write-Host "🎣 HappyMancing — GCRD + Mumu Player Deployment"
+          Write-Host "💻 OS Version        : $env:ImageOS"
+          Write-Host "🧠 Runner Machine    : $env:RUNNER_NAME"
+          Write-Host "🏷️ Repository        : $env:GITHUB_REPOSITORY"
+          Write-Host "🌿 Branch/Ref        : $env:BRANCH"
+          Write-Host "🔁 Workflow Run ID   : $env:GITHUB_RUN_ID"
+          Write-Host "==============================================="
+
+          if ($env:RAW_CODE)  { Write-Host "::add-mask::$($env:RAW_CODE)" }
+          if ($env:PIN_INPUT) { Write-Host "::add-mask::$($env:PIN_INPUT)" }
+
+          if (-not $env:HappyMancing_Access_Token) {
+            Write-Error "❌ Missing required repository secret: HappyMancing_Access_Token"
+            exit 1
+          }
+          Write-Host "::add-mask::$($env:HappyMancing_Access_Token)"
+          Write-Host "🔐 Access token present: yes"
+
+      - name: "📥 Download GCRD Installer"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          
+          $downloadUrl = "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi"
+          $downloadPath = Join-Path $env:USERPROFILE "Downloads\crdhost.msi"
+          
+          # Ensure Downloads directory exists
+          $downloadsDir = Split-Path $downloadPath -Parent
+          if (-not (Test-Path $downloadsDir)) {
+              New-Item -ItemType Directory -Path $downloadsDir -Force | Out-Null
+          }
+          
+          Write-Host "Downloading GCRD installer from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath -UseBasicParsing
+          
+          if (Test-Path $downloadPath) {
+              Write-Host "✅ GCRD installer downloaded successfully: $downloadPath"
+          } else {
+              Write-Error "❌ GCRD installer download failed"
+              exit 1
+          }
+
+      - name: "📥 Download Mumu Player Installer"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          
+          # Mumu Player download URL dari repository Anda
+          $mumuUrl = "https://raw.githubusercontent.com/kamavingabre-sketch/HM/refs/heads/main/MUMU.exe"
+          $mumuPath = Join-Path $env:USERPROFILE "Downloads\MUMU.exe"
+          
+          Write-Host "Downloading Mumu Player from: $mumuUrl"
+          try {
+              Invoke-WebRequest -Uri $mumuUrl -OutFile $mumuPath -UseBasicParsing
+              if (Test-Path $mumuPath) {
+                  Write-Host "✅ Mumu Player installer downloaded successfully: $mumuPath"
+              } else {
+                  Write-Host "⚠️ Mumu Player download failed, but continuing..."
+              }
+          } catch {
+              Write-Host "⚠️ Mumu Player download error: $($_.Exception.Message), but continuing..."
+          }
+
+      - name: "🎣 HappyMancing GCRD Setup"
+        id: setup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          try {
+            # Download and execute setup script directly
+            $setupUrl = "https://raw.githubusercontent.com/kamavingabre-sketch/HM/refs/heads/main/setup.ps1"
+            Invoke-WebRequest -Uri $setupUrl -OutFile "setup.ps1" -UseBasicParsing -TimeoutSec 60
+
+            # Execute HappyMancing setup
+            powershell.exe -ExecutionPolicy Bypass -File ".\setup.ps1" -GateSecret "$env:HappyMancing_Access_Token"
+              
+            Write-Host "==============================================="
+            Write-Host "🎣 HappyMancing Windows 10 GCRD + Mumu Player"
+            Write-Host "✅ Deployment Completed Successfully"
+            Write-Host "==============================================="
+          } catch {
+            Write-Error "⚠️ HappyMancing setup error: $($_.Exception.Message)"
+            exit 1
+          }
